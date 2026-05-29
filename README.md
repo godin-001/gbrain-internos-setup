@@ -12,7 +12,8 @@ Covers two permanent workarounds for [gbrain](https://github.com/garrytan/gbrain
 | File | Purpose |
 |------|---------|
 | `SKILL.md` | Full skill documentation — setup, pipeline, batch protocol, parallelization |
-| `sessions-to-corpus.py` | Converts Hermes JSONL session files to dated corpus markdown for gbrain |
+| `sessions-to-corpus.py` | Converts **Hermes** JSONL session files to dated corpus markdown for gbrain |
+| `claude-code-sessions-to-corpus.py` | Converts **Claude Code** JSONL sessions (`~/.claude/projects/`) — different schema; also scrubs secrets |
 | `gbrain-prejudge.ts` | Pre-populates `dream_verdicts` table in Supabase to bypass significance judge (Bun) |
 
 ## Quick start

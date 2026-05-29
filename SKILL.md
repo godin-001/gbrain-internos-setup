@@ -97,6 +97,32 @@ Reads `~/.hermes/sessions/YYYYMMDD_*.jsonl`, extracts user+assistant turns (stri
 
 Flags: `--dry-run` (preview without writing), `--force` (overwrite existing), `--corpus-dir <path>` (override output dir).
 
+**Step 1 (Claude Code variant) — `claude-code-sessions-to-corpus.py`**
+
+The Hermes `sessions-to-corpus.py` only parses Hermes' flat `{role, content, timestamp}`
+schema. **Claude Code sessions use a different schema** and will silently yield zero turns
+if fed to the Hermes script. Use the dedicated adapter instead:
+
+```bash
+python3 claude-code-sessions-to-corpus.py            # all sessions under ~/.claude/projects/
+python3 claude-code-sessions-to-corpus.py --dry-run --verbose
+python3 claude-code-sessions-to-corpus.py --min-size 2000   # skip tiny/heartbeat sessions
+```
+
+Differences from the Hermes script:
+- **Schema:** Claude Code records are typed (`type: user|assistant`, plus `file-history-snapshot`,
+  `permission-mode`, `ai-title`, `attachment`, `system`, `last-prompt`). `message.content` is a
+  **block array** (`text` / `thinking` / `tool_use` / `tool_result`); only `text` blocks are kept.
+  A `role: user` record may carry only `tool_result` blocks — those are skipped.
+- **Output layout:** one file *per session* at `<corpus_dir>/claude-code-sessions/<YYYY-MM-DD>/<short-id>.md`
+  (Claude Code sessions are independent conversations, not a single daily log).
+- **Secret scrubbing:** scrubs GitHub/OpenAI/Anthropic/Slack/Supabase tokens, JWTs, AWS keys, and
+  Postgres connection-string passwords before writing (the Hermes script does not). Dropping
+  `tool_result` blocks also removes most secret-bearing command output.
+
+Corpus dir resolves the same way as the Hermes script: `GBRAIN_CORPUS_DIR` env, else gbrain
+config `dream.synthesize.session_corpus_dir`, else `--corpus-dir`.
+
 **Step 2 — Synthesize via Claude Code haiku subagent**
 
 In a Claude Code session, spawn a haiku agent with this prompt template:
@@ -162,6 +188,28 @@ GBRAIN_DISABLE_DIRECT_POOL=1 \
 ```
 
 gbrain handles chunking, embedding (via OpenAI), and Supabase upsert. No Anthropic key required. Already-indexed pages are skipped automatically (content-hash check), so it is safe to re-run import after adding new pages to `/tmp/gbrain-synth/`.
+
+### Gotchas (parallel synthesis + import)
+
+Two failure modes that bite when running the pipeline at scale:
+
+**1. Parallel haiku agents flatten slash-paths in filenames.** When you ask each agent to
+write `wiki/personal/reflections/<slug>.md`, some agents write a *flat* file named
+`wiki-personal-reflections-<slug>.md` (dashes) instead of creating real subdirectories.
+Because gbrain derives the page slug from the **directory tree**, a flat filename produces the
+wrong slug (`wiki-personal-reflections-...` instead of `wiki/personal/reflections/...`).
+Mitigation: have each agent **return the intended slug** (e.g. as JSON), then normalize on disk
+before import — move each file to `<corpus>/<slug>.md` with real parent dirs. Don't trust the
+filename the agent chose.
+
+**2. `gbrain import <subdir>` strips the namespace.** gbrain roots slugs at the directory you
+pass to `import`. So `gbrain import .../corpus/claude-code-sessions/` produces bare slugs like
+`2026-05-28/<id>` (no `claude-code-sessions/` prefix), losing the namespace and risking
+collisions with other date-partitioned corpora. **Always import from the corpus parent**
+(`gbrain import .../corpus/`) so slugs keep their top-level namespace
+(`claude-code-sessions/2026-05-28/<id>`). Already-imported pages elsewhere in the tree are
+skipped as unchanged, so importing the parent is cheap. If you already imported a subdir, delete
+the bare-slug pages (`gbrain delete <slug>`) and re-import from the parent.
 
 ### Pre-seeding verdicts (optional)
 
